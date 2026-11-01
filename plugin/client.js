@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
         where: '目录',
         linked: '连着',
         looksLikeMemory: '这一层有记忆档案',
+        pickTheme: '点一下：只看这一类，并列出全部',
         pathPlaceholder: '也可以直接粘贴路径，回车确认',
         go: '去',
         hint: '拖拽旋转 · 滚轮缩放 · 点点星看原话',
@@ -62,6 +63,7 @@ window.__ModuleLoader__.load({
         where: 'Folder',
         linked: 'Linked',
         looksLikeMemory: 'This folder has an archive',
+        pickTheme: 'Click to isolate this theme and list it',
         pathPlaceholder: 'Or paste a path and press Enter',
         go: 'Go',
         hint: 'Drag to rotate · Scroll to zoom · Click a star to read its source',
@@ -82,8 +84,10 @@ window.__ModuleLoader__.load({
 .ym-stage { position: relative; flex: 1; min-height: 0; }
 .ym-stage canvas { display: block; width: 100%; height: 100%; cursor: grab; }
 .ym-stage canvas.ym-drag { cursor: grabbing; }
-.ym-legend { position: absolute; left: 12px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 70%; pointer-events: none; }
-.ym-legend span { font-size: 11px; color: rgba(200,215,255,.62); display: inline-flex; align-items: center; gap: 5px; }
+.ym-legend { position: absolute; left: 12px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 6px; max-width: 74%; pointer-events: auto; }
+.ym-leg-btn { font-size: 11px; color: rgba(200,215,255,.62); display: inline-flex; align-items: center; gap: 5px; background: transparent; border: 0; border-radius: 4px; padding: 1px 5px; cursor: pointer; font-family: inherit; }
+.ym-leg-btn:hover { background: rgba(120,160,255,.16); color: #dfe8ff; }
+.ym-leg-btn.on { background: rgba(120,160,255,.26); color: #fff; }
 .ym-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .ym-hint { position: absolute; left: 12px; bottom: 36px; font-size: 11px; line-height: 1.45; color: rgba(180,200,255,.3); pointer-events: none; }
 .ym-q { width: 230px; background: rgba(120,160,255,.08); border: 1px solid rgba(120,160,255,.2); border-radius: 6px; color: #dfe8ff; padding: 4px 9px; font-size: 12px; font-family: inherit; }
@@ -92,6 +96,24 @@ window.__ModuleLoader__.load({
 .ym-hits { position: absolute; left: 12px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 56%; }
 .ym-hit { background: rgba(120,160,255,.12); border: 1px solid rgba(120,160,255,.24); border-radius: 10px; padding: 1px 9px; font-size: 11px; color: rgba(214,228,252,.9); cursor: pointer; font-family: inherit; }
 .ym-hit:hover { background: rgba(120,160,255,.24); }
+
+/* 点图例后从右边滑出来的主题清单；同时把星图整体缩小左移，让出位置 */
+.ym-pane { position: absolute; top: 0; right: 0; bottom: 0; width: 300px; z-index: 6; display: flex; flex-direction: column;
+  background: rgba(8,12,22,.94); border-left: 1px solid rgba(120,160,255,.16);
+  transform: translateX(102%); transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.ym-pane.on { transform: none; }
+.ym-pane-h { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 10px; border-bottom: 1px solid rgba(120,160,255,.12); flex: none; }
+.ym-pane-h b { font-size: 13px; font-weight: 600; }
+.ym-pane-h span { font-size: 11px; color: rgba(160,185,240,.55); }
+.ym-pane-x { margin-left: auto; background: transparent; border: 0; color: rgba(180,200,255,.5); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; font-family: inherit; }
+.ym-pane-x:hover { color: #dfe8ff; }
+.ym-pane-list { overflow: auto; padding: 6px 8px 14px; }
+.ym-item { display: block; width: 100%; text-align: left; background: transparent; border: 0; color: rgba(214,228,252,.86); font-family: inherit; font-size: 12px; line-height: 1.5; padding: 5px 6px; border-radius: 5px; cursor: pointer; }
+.ym-item:hover { background: rgba(120,160,255,.14); color: #fff; }
+.ym-item i { font-style: normal; color: rgba(160,185,240,.38); font-size: 10.5px; margin-left: 5px; }
+/* 星图让位的动效：缩小 + 稍微转一点，时长和右侧面板一致 */
+.ym-stage { transition: transform .45s cubic-bezier(.2,.8,.2,1); transform-origin: 50% 50%; }
+.ym-stage.ym-cramped { transform: scale(.68) translateX(-7%) rotate(-1.2deg); }
 
 .ym-empty { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
 .ym-empty h2 { font-size: 15px; font-weight: 600; margin: 0; }
@@ -310,6 +332,17 @@ window.__ModuleLoader__.load({
       let inCanvas = false
       let hover = -1
       let sel = -1
+      /** 每帧复用的投影数组，避免每帧分配 N 个新对象、把 GC 拖起来。 */
+      const Q = new Array(N)
+      /** 每帧复用的「远→近」绘制顺序索引。 */
+      const ORDER = new Array(N)
+      for (let i = 0; i < N; i++) ORDER[i] = i
+      const EMPTY_SET = new Set()
+      let selNbrsFor = -2
+      let selNbrs = null
+      /* 帧率采样：每秒回调一次，界面拿它显示，也用它判断优化有没有用。 */
+      let fpsFrames = 0
+      let fpsAt = 0
       let focusSet = null
       let alive = true
       let raf = 0
@@ -409,6 +442,46 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /* 背景（径向渐变 + 420 颗星尘）只在尺寸变化时画一次，缓存成位图。
+         每帧重画一次渐变 + 几百次 fillRect 是这个星图最大的开销之一。 */
+      const bgCanvas = document.createElement('canvas')
+      function paintBg() {
+        bgCanvas.width = Math.round(W * DPR) || 1
+        bgCanvas.height = Math.round(H * DPR) || 1
+        const b = bgCanvas.getContext('2d')
+        b.setTransform(DPR, 0, 0, DPR, 0, 0)
+        const grad = b.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.78)
+        grad.addColorStop(0, '#0a1020')
+        grad.addColorStop(0.55, '#05080f')
+        grad.addColorStop(1, '#020407')
+        b.fillStyle = grad
+        b.fillRect(0, 0, W, H)
+        b.fillStyle = '#cfe0ff'
+        for (const s of STARS) {
+          b.globalAlpha = s.a
+          b.fillRect(s.x * W, s.y * H, s.s, s.s)
+        }
+        b.globalAlpha = 1
+      }
+
+      /* 中心的白色光晕：同样缓存成一张小图，省掉每帧 createRadialGradient。 */
+      const CORE_R = 40
+      const coreSprite = document.createElement('canvas')
+      {
+        coreSprite.width = CORE_R * 2
+        coreSprite.height = CORE_R * 2
+        const c = coreSprite.getContext('2d')
+        const g = c.createRadialGradient(CORE_R, CORE_R, 0, CORE_R, CORE_R, CORE_R)
+        g.addColorStop(0, 'rgba(255,255,255,.95)')
+        g.addColorStop(0.18, 'rgba(225,235,255,.5)')
+        g.addColorStop(0.5, 'rgba(140,170,255,.12)')
+        g.addColorStop(1, 'rgba(80,120,200,0)')
+        c.fillStyle = g
+        c.beginPath()
+        c.arc(CORE_R, CORE_R, CORE_R, 0, 7)
+        c.fill()
+      }
+
       function resize() {
         const rect = canvas.getBoundingClientRect()
         W = Math.max(1, rect.width)
@@ -417,6 +490,7 @@ window.__ModuleLoader__.load({
         canvas.width = Math.round(W * DPR)
         canvas.height = Math.round(H * DPR)
         ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+        paintBg()
       }
 
       function proj(p) {
@@ -445,28 +519,22 @@ window.__ModuleLoader__.load({
         // 鼠标在图里就停下旋转 —— 不然想点一颗星得追着它点。
         if (!inCanvas && !dragging) spin += 0.0008
         ctx.clearRect(0, 0, W, H)
+        if (bgCanvas.width) ctx.drawImage(bgCanvas, 0, 0, W, H)
 
-        const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.78)
-        bg.addColorStop(0, '#0a1020')
-        bg.addColorStop(0.55, '#05080f')
-        bg.addColorStop(1, '#020407')
-        ctx.fillStyle = bg
-        ctx.fillRect(0, 0, W, H)
-
-        for (const s of STARS) {
-          ctx.globalAlpha = s.a
-          ctx.fillStyle = '#cfe0ff'
-          ctx.fillRect(s.x * W, s.y * H, s.s, s.s)
+        if (sel !== selNbrsFor) {
+          selNbrsFor = sel
+          selNbrs = sel >= 0 ? ADJ.get(sel) || EMPTY_SET : null
         }
-        ctx.globalAlpha = 1
-
-        const Q = pos.map(proj)
-        const selNbrs = sel >= 0 ? ADJ.get(sel) || new Set() : null
+        for (let i = 0; i < N; i++) Q[i] = proj(pos[i])
         const dim = sel >= 0
         const inFocus = (i) => !focusSet || focusSet.has(i)
 
         // 联想线
+        // 900 多条线如果一条一条 beginPath+stroke，Canvas 要发 900 次绘制调用 ——
+        // 这是最大的开销。把它们按「颜色 + 透明度档 + 线宽档」分桶，
+        // 每个桶一条路径一次 stroke，调用数从 ~900 降到十几个。
         ctx.lineCap = 'round'
+        const buckets = new Map()
         for (const [a, b, kind, dd] of EDGES) {
           if (kind === 'root') continue
           const qa = Q[a]
@@ -485,58 +553,81 @@ window.__ModuleLoader__.load({
             ctx.globalAlpha = 1
             ctx.strokeStyle = '#ffffff'
             ctx.lineWidth = 1.8
-          } else {
-            const KA =
-              kind === 'sim' ? 0.09 + 0.32 * (dd || 0)
-              : kind === 'ref' ? 0.22
-              : kind === 'day' ? 0.26
-              : 0.09
-            ctx.globalAlpha = (dim ? 0.03 : KA) * depth * (focusSet && !(focusSet.has(a) && focusSet.has(b)) ? 0.12 : 1)
-            ctx.strokeStyle = kind === 'ref' ? '#f0d9a8' : colorOf(theme)
-            ctx.lineWidth = (kind === 'ref' ? 0.7 : 0.55) * depth + 0.22
+            ctx.beginPath()
+            ctx.moveTo(qa.sx, qa.sy)
+            ctx.lineTo(qb.sx, qb.sy)
+            ctx.stroke()
+            continue
           }
+          const KA =
+            kind === 'sim' ? 0.09 + 0.32 * (dd || 0)
+            : kind === 'ref' ? 0.22
+            : kind === 'day' ? 0.26
+            : 0.09
+          const alpha = (dim ? 0.03 : KA) * depth * (focusSet && !(focusSet.has(a) && focusSet.has(b)) ? 0.12 : 1)
+          // 太淡的线画了也看不见，直接跳过。
+          if (alpha < 0.02) continue
+          const color = kind === 'ref' ? '#f0d9a8' : colorOf(theme)
+          const width = (kind === 'ref' ? 0.7 : 0.55) * depth + 0.22
+          const key = color + '|' + Math.round(alpha * 16) + '|' + width.toFixed(2)
+          let bk = buckets.get(key)
+          if (!bk) {
+            bk = { color, alpha, width, segs: [] }
+            buckets.set(key, bk)
+          }
+          bk.segs.push(qa.sx, qa.sy, qb.sx, qb.sy)
+        }
+        for (const bk of buckets.values()) {
+          ctx.globalAlpha = bk.alpha
+          ctx.strokeStyle = bk.color
+          ctx.lineWidth = bk.width
           ctx.beginPath()
-          ctx.moveTo(qa.sx, qa.sy)
-          ctx.lineTo(qb.sx, qb.sy)
+          const s = bk.segs
+          for (let k = 0; k < s.length; k += 4) {
+            ctx.moveTo(s[k], s[k + 1])
+            ctx.lineTo(s[k + 2], s[k + 3])
+          }
           ctx.stroke()
         }
 
-        // 中心辐射
+        // 中心辐射（同样分桶：188 条线塞进几条路径）
         const core = Q[0]
+        const radBuckets = new Map()
         for (let i = 1; i < N; i++) {
           const q = Q[i]
           const theme = (nodes[i - 1] && nodes[i - 1].theme) || '其他'
           const hot = sel >= 0 && (i === sel || sel === 0)
-          if (hot) {
-            ctx.globalAlpha = 1
-            ctx.strokeStyle = '#e8f0ff'
-            ctx.lineWidth = 2.4
-          } else {
-            ctx.globalAlpha = (dim ? 0.02 : 0.07) * q.persp * (focusSet && !focusSet.has(i) ? 0.12 : 1)
-            ctx.strokeStyle = colorOf(theme)
-            ctx.lineWidth = 0.45
+          const alpha = hot ? 1 : (dim ? 0.02 : 0.07) * q.persp * (focusSet && !focusSet.has(i) ? 0.12 : 1)
+          if (alpha < 0.02 && !hot) continue
+          const key = (hot ? '#e8f0ff' : colorOf(theme)) + '|' + Math.round(alpha * 16)
+          let bk = radBuckets.get(key)
+          if (!bk) {
+            bk = { color: hot ? '#e8f0ff' : colorOf(theme), alpha, width: hot ? 2.4 : 0.45, segs: [] }
+            radBuckets.set(key, bk)
           }
+          bk.segs.push(core.sx, core.sy, q.sx, q.sy)
+        }
+        for (const bk of radBuckets.values()) {
+          ctx.globalAlpha = bk.alpha
+          ctx.strokeStyle = bk.color
+          ctx.lineWidth = bk.width
           ctx.beginPath()
-          ctx.moveTo(core.sx, core.sy)
-          ctx.lineTo(q.sx, q.sy)
+          const s = bk.segs
+          for (let k = 0; k < s.length; k += 4) {
+            ctx.moveTo(s[k], s[k + 1])
+            ctx.lineTo(s[k + 2], s[k + 3])
+          }
           ctx.stroke()
         }
         ctx.globalAlpha = 1
 
-        // 星核
-        const cg = ctx.createRadialGradient(core.sx, core.sy, 0, core.sx, core.sy, 40)
-        cg.addColorStop(0, 'rgba(255,255,255,.95)')
-        cg.addColorStop(0.18, 'rgba(225,235,255,.5)')
-        cg.addColorStop(0.5, 'rgba(140,170,255,.12)')
-        cg.addColorStop(1, 'rgba(80,120,200,0)')
-        ctx.fillStyle = cg
-        ctx.beginPath()
-        ctx.arc(core.sx, core.sy, 40, 0, 7)
-        ctx.fill()
+        // 星核（位图缓存，省掉每帧 createRadialGradient）
+        ctx.globalAlpha = 1
+        ctx.drawImage(coreSprite, core.sx - CORE_R, core.sy - CORE_R, CORE_R * 2, CORE_R * 2)
 
-        // 星点，远到近
-        const order = Q.map((q, i) => i).sort((a, b) => Q[b].z - Q[a].z)
-        for (const i of order) {
+        // 星点，远到近（复用预分配数组，每帧只排序不分配）
+        ORDER.sort((a, b) => Q[b].z - Q[a].z)
+        for (const i of ORDER) {
           const q = Q[i]
           const nd = i === 0 ? CN : nodes[i - 1]
           const c = colorOf(nd.theme)
@@ -607,6 +698,13 @@ window.__ModuleLoader__.load({
         }
         ctx.textAlign = 'center'
 
+        fpsFrames++
+        const tNow = performance.now()
+        if (tNow - fpsAt >= 1000) {
+          if (opts.onFps) opts.onFps(Math.round((fpsFrames * 1000) / (tNow - fpsAt)))
+          fpsFrames = 0
+          fpsAt = tNow
+        }
         raf = requestAnimationFrame(draw)
       }
 
@@ -615,7 +713,7 @@ window.__ModuleLoader__.load({
         let best = -1
         let bd = 18 * 18
         for (let i = 0; i < N; i++) {
-          const q = proj(pos[i])
+          const q = Q[i] || proj(pos[i])
           const d = (q.sx - mx) * (q.sx - mx) + (q.sy - my) * (q.sy - my)
           if (d < bd) {
             bd = d
@@ -716,8 +814,29 @@ window.__ModuleLoader__.load({
         select(i) {
           onPickNode(i)
         },
+        /** 按节点 id 选中（右侧主题清单里点一条时用）。 */
+        selectById(id) {
+          for (let i = 1; i < N; i++) {
+            if (nodes[i - 1] && nodes[i - 1].id === id) {
+              onPickNode(i)
+              return true
+            }
+          }
+          return false
+        },
         clearQuery() {
           focusSet = null
+        },
+        /** 只亮起某个主题的全部节点（图例点一下就用这个）。返回命中数量。 */
+        focusTheme(name) {
+          sel = -1
+          selNbrsFor = -2
+          const set = new Set()
+          for (let i = 1; i < N; i++) {
+            if (((nodes[i - 1] && nodes[i - 1].theme) || '其他') === name) set.add(i)
+          }
+          focusSet = set.size ? set : null
+          return set.size
         },
         dispose() {
           alive = false
@@ -898,6 +1017,25 @@ window.__ModuleLoader__.load({
       const [picking, setPicking] = React.useState(false)
       const [selected, setSelected] = React.useState(null)
       const [nbrs, setNbrs] = React.useState([])
+      const [fps, setFps] = React.useState(0)
+      /** 点图例后从右边滑出的主题清单：{ name, items } */
+      const [pane, setPane] = React.useState(null)
+
+      const openTheme = (name) => {
+        const all = (data && data.nodes) || []
+        const items = all.filter((nd) => ((nd && nd.theme) || '其他') === name)
+        setPane({ name, items })
+        setSelected(null)
+        setNbrs([])
+        setHits([])
+        setQ('')
+        if (engineRef.current && engineRef.current.focusTheme) engineRef.current.focusTheme(name)
+      }
+
+      const closePane = () => {
+        setPane(null)
+        if (engineRef.current) engineRef.current.clearQuery()
+      }
       const [q, setQ] = React.useState('')
       const [hits, setHits] = React.useState([])
       const canvasRef = React.useRef(null)
@@ -945,6 +1083,7 @@ window.__ModuleLoader__.load({
             setSelected(node)
             setNbrs(list || [])
           },
+          onFps: (f) => setFps(f),
         })
         setSelected(null)
         setNbrs([])
@@ -1009,7 +1148,7 @@ window.__ModuleLoader__.load({
 
         h(
           'div',
-          { className: 'ym-stage', onClick: status === 'idle' ? () => setPicking(true) : undefined },
+          { className: 'ym-stage' + (pane ? ' ym-cramped' : ''), onClick: status === 'idle' ? () => setPicking(true) : undefined },
           h('canvas', { ref: canvasRef }),
 
           status === 'idle'
@@ -1042,8 +1181,13 @@ window.__ModuleLoader__.load({
                   .sort((a, b) => b[1] - a[1])
                   .map(([name, n]) =>
                     h(
-                      'span',
-                      { key: name },
+                      'button',
+                      {
+                        key: name,
+                        className: 'ym-leg-btn' + (pane && pane.name === name ? ' on' : ''),
+                        onClick: () => openTheme(name),
+                        title: t('pickTheme'),
+                      },
                       h('i', { className: 'ym-dot', style: { background: colors[name] || '#6a7d9c' } }),
                       `${name} ${n}`,
                     ),
@@ -1065,7 +1209,7 @@ window.__ModuleLoader__.load({
               )
             : null,
 
-          status === 'ready' ? h('div', { className: 'ym-hint' }, t('hint')) : null,
+          status === 'ready' ? h('div', { className: 'ym-hint' }, t('hint') + (fps ? ' · ' + fps + ' fps' : '')) : null,
           selected
             ? h(DetailCard, {
                 node: selected,
@@ -1080,6 +1224,41 @@ window.__ModuleLoader__.load({
                   if (engineRef.current) engineRef.current.select(n.i)
                 },
               })
+            : null,
+        ),
+
+        h(
+          'div',
+          { className: 'ym-pane' + (pane ? ' on' : ''), 'aria-hidden': pane ? 'false' : 'true' },
+          pane
+            ? [
+                h(
+                  'div',
+                  { className: 'ym-pane-h', key: 'h' },
+                  h('i', { className: 'ym-dot', style: { background: colors[pane.name] || '#6a7d9c' } }),
+                  h('b', null, pane.name),
+                  h('span', null, String(pane.items.length)),
+                  h('button', { className: 'ym-pane-x', onClick: closePane, title: t('close') }, '×'),
+                ),
+                h(
+                  'div',
+                  { className: 'ym-pane-list', key: 'l' },
+                  pane.items.map((nd, i) =>
+                    h(
+                      'button',
+                      {
+                        key: (nd && nd.id) || i,
+                        className: 'ym-item',
+                        onClick: () => {
+                          if (engineRef.current && nd) engineRef.current.selectById(nd.id)
+                        },
+                      },
+                      String((nd && nd.title) || '—'),
+                      nd && nd.date ? h('i', null, nd.date) : null,
+                    ),
+                  ),
+                ),
+              ]
             : null,
         ),
 
