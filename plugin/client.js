@@ -109,15 +109,37 @@ window.__ModuleLoader__.load({
 
     /* ------------------------------------------------------------ 引擎 */
 
-    const COLORS = {
-      core: '#ffffff', 工作: '#8b97ad', 技术: '#5b8cff', 学习: '#5ee0a8',
-      生活: '#4fd6c9', 关系: '#ff8fd0', 健康: '#a8e05f', 想法: '#b98cff', 其他: '#6a7d9c',
+    // 主题配色：先查挑好的色，认不出的按色相均匀分配 ——
+    // 这样 7 类、12 类、用户自己起二十个名字都有颜色，不会一锅灰。
+    const PREFERRED = {
+      视频: '#4fd6c9', 记忆系统: '#5b8cff', 'QQ 桥': '#7cd0ff', 感情: '#ff6f86',
+      命理: '#b98cff', 白酒: '#ffc861', 工作: '#8b97ad', 其他: '#6a7d9c',
+      车机: '#ff9d5c', 工具链: '#5ee0a8', 手机: '#8fd3ff', 约定: '#ff8fd0',
+      健康: '#a8e05f', 技术: '#5b8cff', 学习: '#5ee0a8', 生活: '#4fd6c9',
+      关系: '#ff8fd0', 想法: '#b98cff',
     }
     const WEIGHT = { 重: 1.9, 中: 1.0, 轻: 0.55 }
     const KINDS = ['sim', 'ref', 'day', 'root']
 
-    function colorOf(theme) {
-      return COLORS[theme] || '#6a7d9c'
+    function themeNames(themes) {
+      return (themes || []).map((x) => (typeof x === 'string' ? x : x && x.name)).filter(Boolean)
+    }
+
+    function buildColors(themes, otherName) {
+      const other = otherName || '其他'
+      const out = { core: '#ffffff' }
+      out[other] = '#6a7d9c'
+      const free = []
+      for (const name of themeNames(themes)) {
+        if (name === other) continue
+        if (PREFERRED[name]) out[name] = PREFERRED[name]
+        else free.push(name)
+      }
+      free.forEach((name, i) => {
+        const hue = Math.round((i * 360) / Math.max(free.length, 1))
+        out[name] = 'hsl(' + hue + ' 68% 64%)'
+      })
+      return out
     }
 
     /**
@@ -127,6 +149,11 @@ window.__ModuleLoader__.load({
     function createEngine(canvas, data, opts) {
       const ctx = canvas.getContext('2d')
       const nodes = data.nodes || []
+      const COLORS = buildColors(
+        themeNames(data.themes).concat(Object.keys((data.stats && data.stats.themes) || {})),
+        data.otherTheme,
+      )
+      const colorOf = (theme) => COLORS[theme] || '#6a7d9c'
       const CN = {
         title: data.center || '我',
         theme: 'core',
@@ -747,6 +774,16 @@ window.__ModuleLoader__.load({
       }, [status, data])
 
       const stats = data && data.stats
+      const colors = React.useMemo(
+        () =>
+          buildColors(
+            themeNames(data && data.themes).concat(
+              Object.keys((stats && stats.themes) || {}),
+            ),
+            data && data.otherTheme,
+          ),
+        [data],
+      )
 
       return h(
         'div',
@@ -804,7 +841,7 @@ window.__ModuleLoader__.load({
                     h(
                       'span',
                       { key: name },
-                      h('i', { className: 'ym-dot', style: { background: colorOf(name) } }),
+                      h('i', { className: 'ym-dot', style: { background: colors[name] || '#6a7d9c' } }),
                       `${name} ${n}`,
                     ),
                   ),
