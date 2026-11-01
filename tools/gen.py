@@ -441,10 +441,7 @@ function draw(){
   ctx.fillText('@@CENTER@@', core.sx, core.sy + 26);
 
   const tagged = new Set();
-  if (sel >= 0) {
-    tagged.add(sel);
-    for (const x of (NBR.get(sel) || [])) tagged.add(x[0]);
-  }
+  if (sel >= 0) tagged.add(sel);
   if (hover > 0) tagged.add(hover);
   for (const fi of focusTop) tagged.add(fi);
 
