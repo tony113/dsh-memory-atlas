@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
         section: '章节',
         weight: '份量',
         where: '目录',
+        linked: '连着',
         looksLikeMemory: '这一层有记忆档案',
         pathPlaceholder: '也可以直接粘贴路径，回车确认',
         go: '去',
@@ -59,6 +60,7 @@ window.__ModuleLoader__.load({
         section: 'Section',
         weight: 'Weight',
         where: 'Folder',
+        linked: 'Linked',
         looksLikeMemory: 'This folder has an archive',
         pathPlaceholder: 'Or paste a path and press Enter',
         go: 'Go',
@@ -102,6 +104,10 @@ window.__ModuleLoader__.load({
 .ym-card dt { color: rgba(160,185,240,.45); }
 .ym-card dd { margin: 0; }
 .ym-card p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: rgba(215,228,255,.78); white-space: pre-wrap; word-break: break-word; }
+.ym-nbrs { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(120,160,255,.12); }
+.ym-nbrs-h { font-size: 11px; color: rgba(160,185,240,.5); margin-bottom: 4px; letter-spacing: .02em; }
+.ym-nbr { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0; color: rgba(200,220,255,.75); font-size: 11.5px; cursor: pointer; font-family: inherit; line-height: 1.45; }
+.ym-nbr:hover { color: #fff; text-decoration: underline; }
 .ym-card .ym-x { position: absolute; right: 8px; top: 6px; background: none; border: 0; color: rgba(180,200,255,.5); font-size: 15px; cursor: pointer; line-height: 1; padding: 2px 4px; }
 
 .ym-modal { position: absolute; inset: 0; background: rgba(2,4,10,.72); display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -301,6 +307,7 @@ window.__ModuleLoader__.load({
       let pitch = -0.35
       let zoom = 1.0
       let spin = 0
+      let inCanvas = false
       let hover = -1
       let sel = -1
       let focusSet = null
@@ -435,7 +442,8 @@ window.__ModuleLoader__.load({
       /* ---------- 绘制 ---------- */
       function draw() {
         if (!alive) return
-        spin += 0.0008
+        // 鼠标在图里就停下旋转 —— 不然想点一颗星得追着它点。
+        if (!inCanvas && !dragging) spin += 0.0008
         ctx.clearRect(0, 0, W, H)
 
         const bg = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.78)
@@ -572,10 +580,7 @@ window.__ModuleLoader__.load({
         ctx.fillText(CN.title, core.sx, core.sy + 26)
 
         const tagged = new Set()
-        if (sel >= 0) {
-          tagged.add(sel)
-          for (const j of selNbrs || []) tagged.add(j)
-        }
+        if (sel >= 0) tagged.add(sel)
         if (hover > 0) tagged.add(hover)
 
         for (const i of tagged) {
@@ -621,6 +626,8 @@ window.__ModuleLoader__.load({
       let lx = 0
       let ly = 0
       let moved = 0
+      let downX = 0
+      let downY = 0
 
       function localXY(e) {
         const rect = canvas.getBoundingClientRect()
@@ -632,6 +639,8 @@ window.__ModuleLoader__.load({
         moved = 0
         lx = e.clientX
         ly = e.clientY
+        downX = e.clientX
+        downY = e.clientY
         canvas.classList.add('ym-drag')
       }
       const onUp = () => {
@@ -656,20 +665,39 @@ window.__ModuleLoader__.load({
         e.preventDefault()
         zoom = Math.max(0.4, Math.min(7, zoom * (e.deltaY > 0 ? 0.92 : 1.08)))
       }
-      const onClick = (e) => {
-        if (moved) {
-          moved = 0
-          return
-        }
-        const [mx, my] = localXY(e)
-        const i = pick(mx, my)
+      /** 选中一颗星，把「和它相连的」一并交给宿主去列在详情卡里。 */
+      const onPickNode = (i) => {
         sel = i
-        opts.onSelect && opts.onSelect(i >= 0 ? ALL[i] : null, i)
+        const list =
+          i >= 0
+            ? (NBR.get(i) || [])
+                .filter(([j, kind]) => kind !== 'root')
+                .sort((a, b) => (b[2] || 0) - (a[2] || 0))
+                .slice(0, 24)
+                .map(([j, kind, w]) => ({ i: j, node: j === 0 ? CN : nodes[j - 1], kind, w }))
+            : []
+        opts.onSelect && opts.onSelect(i >= 0 ? ALL[i] : null, i, list)
+      }
+      const onClick = (e) => {
+        // 用「按下点」和「松开点」的距离判断是不是拖拽 ——
+        // 只看 moved 会把「鼠标刚滑过来就点」误判成拖动，点不中星。
+        if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) return
+        const [mx, my] = localXY(e)
+        onPickNode(pick(mx, my))
       }
 
       canvas.addEventListener('mousedown', onDown)
+      const onEnter = () => {
+        inCanvas = true
+      }
+      const onLeave = () => {
+        inCanvas = false
+        hover = -1
+      }
       window.addEventListener('mouseup', onUp)
       canvas.addEventListener('mousemove', onMove)
+      canvas.addEventListener('mouseenter', onEnter)
+      canvas.addEventListener('mouseleave', onLeave)
       canvas.addEventListener('wheel', onWheel, { passive: false })
       canvas.addEventListener('click', onClick)
 
@@ -682,6 +710,9 @@ window.__ModuleLoader__.load({
 
       return {
         query,
+        select(i) {
+          onPickNode(i)
+        },
         clearQuery() {
           focusSet = null
         },
@@ -692,6 +723,8 @@ window.__ModuleLoader__.load({
           canvas.removeEventListener('mousedown', onDown)
           window.removeEventListener('mouseup', onUp)
           canvas.removeEventListener('mousemove', onMove)
+          canvas.removeEventListener('mouseenter', onEnter)
+          canvas.removeEventListener('mouseleave', onLeave)
           canvas.removeEventListener('wheel', onWheel)
           canvas.removeEventListener('click', onClick)
         },
@@ -815,7 +848,7 @@ window.__ModuleLoader__.load({
 
     /* ------------------------------------------------------------ 详情卡 */
 
-    function DetailCard({ node, t, onClose }) {
+    function DetailCard({ node, nbrs, t, onClose, onJump }) {
       if (!node) return null
       const rows = []
       if (node.date) rows.push([t('date'), node.date + (node.time ? ' ' + node.time : '')])
@@ -829,6 +862,20 @@ window.__ModuleLoader__.load({
         h('h3', null, String(node.title || '').slice(0, 80)),
         rows.length ? h('dl', null, rows.map(([k, v]) => [h('dt', { key: 'k' + k }, k), h('dd', { key: 'v' + k }, v)])) : null,
         node.body ? h('p', null, String(node.body).slice(0, 600)) : null,
+        nbrs && nbrs.length
+          ? h(
+              'div',
+              { className: 'ym-nbrs' },
+              h('div', { className: 'ym-nbrs-h' }, `${t('linked')} · ${nbrs.length}`),
+              nbrs.map((n, k) =>
+                h(
+                  'button',
+                  { key: k, className: 'ym-nbr', onClick: () => onJump(n) },
+                  String(n.node.title || '—').slice(0, 32),
+                ),
+              ),
+            )
+          : null,
       )
     }
 
@@ -847,6 +894,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [picking, setPicking] = React.useState(false)
       const [selected, setSelected] = React.useState(null)
+      const [nbrs, setNbrs] = React.useState([])
       const [q, setQ] = React.useState('')
       const [hits, setHits] = React.useState([])
       const canvasRef = React.useRef(null)
@@ -890,9 +938,13 @@ window.__ModuleLoader__.load({
         if (!canvasRef.current || status !== 'ready' || !data) return
         if (engineRef.current) engineRef.current.dispose()
         engineRef.current = createEngine(canvasRef.current, data, {
-          onSelect: (node) => setSelected(node),
+          onSelect: (node, i, list) => {
+            setSelected(node)
+            setNbrs(list || [])
+          },
         })
         setSelected(null)
+        setNbrs([])
         return () => {
           if (engineRef.current) {
             engineRef.current.dispose()
@@ -1011,7 +1063,21 @@ window.__ModuleLoader__.load({
             : null,
 
           status === 'ready' ? h('div', { className: 'ym-hint' }, t('hint')) : null,
-          selected ? h(DetailCard, { node: selected, t, onClose: () => setSelected(null) }) : null,
+          selected
+            ? h(DetailCard, {
+                node: selected,
+                nbrs,
+                t,
+                onClose: () => {
+                  setSelected(null)
+                  setNbrs([])
+                },
+                onJump: (n) => {
+                  setSelected(n.node)
+                  if (engineRef.current) engineRef.current.select(n.i)
+                },
+              })
+            : null,
         ),
 
         picking
