@@ -433,24 +433,40 @@ function draw(){
     ctx.globalAlpha = 1;
   }
 
-  // 标签：中心常驻，hover 才显示其他
-  ctx.font = '11px -apple-system,"Microsoft YaHei",sans-serif';
+  // 标签：中心常驻；点中一颗星时，把它和与它相连的星一起标出来 ——
+  // 不用再一个个挪鼠标去问「旁边那颗是什么」。
   ctx.textAlign = 'center';
+  ctx.font = '11px -apple-system,"Microsoft YaHei",sans-serif';
   ctx.fillStyle = 'rgba(235,242,255,.95)';
   ctx.fillText('@@CENTER@@', core.sx, core.sy + 26);
-  if (focusTop.length) {
-    for (const fi of focusTop) {
-      const fq = Q[fi], fnd = fi === 0 ? CN : NODES[fi-1];
-      ctx.fillStyle = 'rgba(240,248,255,.95)';
-      ctx.fillText(String(fnd.title || '').slice(0, 14), fq.sx, fq.sy - 13);
-    }
+
+  const tagged = new Set();
+  if (sel >= 0) {
+    tagged.add(sel);
+    for (const x of (NBR.get(sel) || [])) tagged.add(x[0]);
   }
-  if (hover > 0) {
-    const q = Q[hover], nd = NODES[hover-1];
-    const label = (nd.title || '').slice(0, 22);
-    ctx.fillStyle = 'rgba(230,240,255,.9)';
-    ctx.fillText(label, q.sx, q.sy - 12);
+  if (hover > 0) tagged.add(hover);
+  for (const fi of focusTop) tagged.add(fi);
+
+  for (const i of tagged) {
+    if (i === 0) continue;
+    const q = Q[i], nd = NODES[i-1];
+    if (!nd) continue;
+    const isSel = i === sel;
+    const label = String(nd.title || '').slice(0, isSel ? 22 : 18);
+    if (!label) continue;
+    const tw = ctx.measureText(label).width;
+    const lh = isSel ? 17 : 15;
+    const baseY = q.sy - (isSel ? 26 : 23);
+    ctx.fillStyle = 'rgba(8,12,22,.72)';
+    ctx.fillRect(q.sx - tw/2 - 3, baseY, tw + 6, lh);
+    ctx.font = isSel
+      ? '600 12px -apple-system,"Microsoft YaHei",sans-serif'
+      : '11px -apple-system,"Microsoft YaHei",sans-serif';
+    ctx.fillStyle = isSel ? 'rgba(255,255,255,.98)' : 'rgba(214,228,252,.9)';
+    ctx.fillText(label, q.sx, baseY + lh - 4);
   }
+  ctx.font = '11px -apple-system,"Microsoft YaHei",sans-serif';
 
   requestAnimationFrame(draw);
 }
