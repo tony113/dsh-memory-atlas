@@ -580,7 +580,10 @@ window.__ModuleLoader__.load({
         ctx.fillText(CN.title, core.sx, core.sy + 26)
 
         const tagged = new Set()
-        if (sel >= 0) tagged.add(sel)
+        if (sel >= 0) {
+          tagged.add(sel)
+          for (const j of selNbrs || []) tagged.add(j)
+        }
         if (hover > 0) tagged.add(hover)
 
         for (const i of tagged) {
