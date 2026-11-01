@@ -12,3 +12,4 @@ it*.png
 nodes.json
 edges.json
 examples/*/index.html
+_*.png
