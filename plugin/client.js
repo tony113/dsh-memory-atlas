@@ -108,6 +108,9 @@ window.__ModuleLoader__.load({
 .ym-pane-x { margin-left: auto; background: transparent; border: 0; color: rgba(180,200,255,.5); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; font-family: inherit; }
 .ym-pane-x:hover { color: #dfe8ff; }
 .ym-pane-list { overflow: auto; padding: 6px 8px 14px; }
+.ym-pane-list::-webkit-scrollbar { width: 8px; }
+.ym-pane-list::-webkit-scrollbar-thumb { background: rgba(120,160,255,.22); border-radius: 4px; }
+.ym-pane-list::-webkit-scrollbar-track { background: transparent; }
 .ym-item { display: block; width: 100%; text-align: left; background: transparent; border: 0; color: rgba(214,228,252,.86); font-family: inherit; font-size: 12px; line-height: 1.5; padding: 5px 6px; border-radius: 5px; cursor: pointer; }
 .ym-item:hover { background: rgba(120,160,255,.14); color: #fff; }
 .ym-item i { font-style: normal; color: rgba(160,185,240,.38); font-size: 10.5px; margin-left: 5px; }
