@@ -80,9 +80,29 @@ const EDGES_DATA = __EDGES__;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
 
-const COLORS = {'视频':'#4fd6c9','记忆系统':'#5b8cff','QQ 桥':'#7cd0ff','感情':'#ff6f86',
-  '命理':'#b98cff','白酒':'#ffc861','工作':'#8b97ad','其他':'#6a7d9c','core':'#ffffff',
-  '车机':'#ff9d5c','工具链':'#5ee0a8','手机':'#8fd3ff','约定':'#ff8fd0','健康':'#a8e05f'};
+// 主题配色：先查挑好的色，认不出的按色相均匀分配 ——
+// 这样 7 类、12 类、用户自己起二十个名字都有颜色，不会一锅灰。
+const PREFERRED = {'视频':'#4fd6c9','记忆系统':'#5b8cff','QQ 桥':'#7cd0ff','感情':'#ff6f86',
+  '命理':'#b98cff','白酒':'#ffc861','工作':'#8b97ad','其他':'#6a7d9c',
+  '车机':'#ff9d5c','工具链':'#5ee0a8','手机':'#8fd3ff','约定':'#ff8fd0','健康':'#a8e05f',
+  '技术':'#5b8cff','学习':'#5ee0a8','生活':'#4fd6c9','关系':'#ff8fd0','想法':'#b98cff'};
+function buildColors(list, other){
+  other = other || '其他';
+  const out = {core: '#ffffff'};
+  out[other] = '#6a7d9c';
+  const free = [];
+  for (const raw of list || []) {
+    const name = typeof raw === 'string' ? raw : (raw && raw.name);
+    if (!name || name === other) continue;
+    if (PREFERRED[name]) out[name] = PREFERRED[name];
+    else free.push(name);
+  }
+  free.forEach((name, i) => {
+    out[name] = 'hsl(' + Math.round((i * 360) / Math.max(free.length, 1)) + ' 68% 64%)';
+  });
+  return out;
+}
+const COLORS = buildColors([...new Set(NODES.map(n => n.theme).filter(Boolean)), '其他']);
 const WEIGHT = {'重':1.9,'中':1.0,'轻':0.55};
 
 // ---------- 节点与边 ----------
