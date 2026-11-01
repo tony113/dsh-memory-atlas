@@ -17,6 +17,8 @@ window.__ModuleLoader__.load({
         title: '记忆星图',
         pick: '换个目录',
         reload: '重画',
+        search: '说一句话，把相关的星拉出来（Esc 清）',
+        noHit: '没找到',
         empty: '还没有指向任何记忆目录',
         emptyHint: '挑一个放着记忆档案（.md）的文件夹，星图从里面长出来。',
         choose: '选择目录',
@@ -41,6 +43,8 @@ window.__ModuleLoader__.load({
         title: 'Memory Atlas',
         pick: 'Change folder',
         reload: 'Redraw',
+        search: 'Say a phrase to pull out the stars it touches (Esc to clear)',
+        noHit: 'Nothing found',
         empty: 'Not pointing at a memory folder yet',
         emptyHint: 'Pick a folder holding your memory archive (.md) — the atlas grows out of it.',
         choose: 'Choose folder',
@@ -80,6 +84,12 @@ window.__ModuleLoader__.load({
 .ym-legend span { font-size: 11px; color: rgba(200,215,255,.62); display: inline-flex; align-items: center; gap: 5px; }
 .ym-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .ym-hint { position: absolute; left: 12px; bottom: 36px; font-size: 11px; line-height: 1.45; color: rgba(180,200,255,.3); pointer-events: none; }
+.ym-q { width: 230px; background: rgba(120,160,255,.08); border: 1px solid rgba(120,160,255,.2); border-radius: 6px; color: #dfe8ff; padding: 4px 9px; font-size: 12px; font-family: inherit; }
+.ym-q:focus { outline: 1px solid rgba(120,160,255,.5); }
+.ym-q::placeholder { color: rgba(180,200,255,.32); }
+.ym-hits { position: absolute; left: 12px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 56%; }
+.ym-hit { background: rgba(120,160,255,.12); border: 1px solid rgba(120,160,255,.24); border-radius: 10px; padding: 1px 9px; font-size: 11px; color: rgba(214,228,252,.9); cursor: pointer; font-family: inherit; }
+.ym-hit:hover { background: rgba(120,160,255,.24); }
 
 .ym-empty { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
 .ym-empty h2 { font-size: 15px; font-weight: 600; margin: 0; }
@@ -293,8 +303,93 @@ window.__ModuleLoader__.load({
       let spin = 0
       let hover = -1
       let sel = -1
+      let focusSet = null
       let alive = true
       let raf = 0
+
+      /* ---------- 语义检索：说一句话，把相关的星拉出来 ---------- */
+      function norm(s) {
+        return String(s || '')
+          .toLowerCase()
+          .replace(/[^0-9a-z_\u4e00-\u9fff]/g, '')
+      }
+      const QDF = new Map()
+      const NODE_GRAMS = []
+      ;(function buildIndex() {
+        const df = new Map()
+        const gs = []
+        for (let i = 0; i < N; i++) {
+          const nd = i === 0 ? CN : nodes[i - 1]
+          const t = norm(nd.title) + ' ' + norm(nd.body)
+          const c = new Map()
+          for (let k = 0; k < t.length - 1; k++) {
+            const g = t.substr(k, 2)
+            c.set(g, (c.get(g) || 0) + 1)
+          }
+          gs.push(c)
+          for (const g of c.keys()) df.set(g, (df.get(g) || 0) + 1)
+        }
+        gs.forEach((c) => {
+          const v = new Map()
+          let ss = 0
+          for (const [g, n] of c) {
+            const w = (1 + Math.log(n)) * (Math.log((N + 1) / ((df.get(g) || 0) + 1)) + 1)
+            v.set(g, w)
+            ss += w * w
+          }
+          const q = Math.sqrt(ss) || 1
+          for (const [g, w] of v) v.set(g, w / q)
+          NODE_GRAMS.push(v)
+        })
+        for (const [g, n] of df) QDF.set(g, n)
+      })()
+
+      /** 说一句话，返回命中的前几个节点（组件拿它显示标题）。空查询清掉聚焦。 */
+      function query(text) {
+        sel = -1
+        const t = norm(text)
+        if (t.length < 2) {
+          focusSet = null
+          return []
+        }
+        const c = new Map()
+        for (let k = 0; k < t.length - 1; k++) {
+          const g = t.substr(k, 2)
+          c.set(g, (c.get(g) || 0) + 1)
+        }
+        const qv = new Map()
+        let ss = 0
+        for (const [g, n] of c) {
+          if (!QDF.has(g)) continue
+          const w = (1 + Math.log(n)) * (Math.log((N + 1) / (QDF.get(g) + 1)) + 1)
+          qv.set(g, w)
+          ss += w * w
+        }
+        if (!qv.size) {
+          focusSet = null
+          return []
+        }
+        const qn = Math.sqrt(ss) || 1
+        const hits = []
+        for (let i = 0; i < N; i++) {
+          let s = 0
+          const v = NODE_GRAMS[i]
+          for (const [g, w] of qv) {
+            const x = v.get(g)
+            if (x) s += (w / qn) * x
+          }
+          if (s > 0.02) hits.push([s, i])
+        }
+        hits.sort((a, b) => b[0] - a[0])
+        const top = hits.slice(0, 5)
+        const set = new Set()
+        top.forEach(([s, i]) => {
+          set.add(i)
+          for (const nb of ADJ.get(i) || []) set.add(nb)
+        })
+        focusSet = set.size ? set : null
+        return top.map(([s, i]) => (i === 0 ? CN : nodes[i - 1]))
+      }
 
       const STARS = []
       {
@@ -360,6 +455,7 @@ window.__ModuleLoader__.load({
         const Q = pos.map(proj)
         const selNbrs = sel >= 0 ? ADJ.get(sel) || new Set() : null
         const dim = sel >= 0
+        const inFocus = (i) => !focusSet || focusSet.has(i)
 
         // 联想线
         ctx.lineCap = 'round'
@@ -387,7 +483,7 @@ window.__ModuleLoader__.load({
               : kind === 'ref' ? 0.22
               : kind === 'day' ? 0.26
               : 0.09
-            ctx.globalAlpha = (dim ? 0.03 : KA) * depth
+            ctx.globalAlpha = (dim ? 0.03 : KA) * depth * (focusSet && !(focusSet.has(a) && focusSet.has(b)) ? 0.12 : 1)
             ctx.strokeStyle = kind === 'ref' ? '#f0d9a8' : colorOf(theme)
             ctx.lineWidth = (kind === 'ref' ? 0.7 : 0.55) * depth + 0.22
           }
@@ -408,7 +504,7 @@ window.__ModuleLoader__.load({
             ctx.strokeStyle = '#e8f0ff'
             ctx.lineWidth = 2.4
           } else {
-            ctx.globalAlpha = (dim ? 0.02 : 0.07) * q.persp
+            ctx.globalAlpha = (dim ? 0.02 : 0.07) * q.persp * (focusSet && !focusSet.has(i) ? 0.12 : 1)
             ctx.strokeStyle = colorOf(theme)
             ctx.lineWidth = 0.45
           }
@@ -443,17 +539,17 @@ window.__ModuleLoader__.load({
           const rad = Math.max(0.8, (1.0 + w * 1.45) * persp * Math.min(1.9, zoom)) * boost
 
           ctx.fillStyle = c
-          ctx.globalAlpha = (0.05 * persp + 0.01) * (isNbr || i === sel ? 2.6 : 1)
+          ctx.globalAlpha = (0.05 * persp + 0.01) * (isNbr || i === sel ? 2.6 : 1) * (inFocus(i) ? 1 : 0.1)
           ctx.beginPath()
           ctx.arc(q.sx, q.sy, rad * 6.0, 0, 7)
           ctx.fill()
 
-          ctx.globalAlpha = (0.15 * persp + 0.02) * (isNbr || i === sel ? 2.2 : 1)
+          ctx.globalAlpha = (0.15 * persp + 0.02) * (isNbr || i === sel ? 2.2 : 1) * (inFocus(i) ? 1 : 0.1)
           ctx.beginPath()
           ctx.arc(q.sx, q.sy, rad * 2.6, 0, 7)
           ctx.fill()
 
-          ctx.globalAlpha = 0.55 + persp * 0.45
+          ctx.globalAlpha = (0.55 + persp * 0.45) * (inFocus(i) ? 1 : 0.1)
           ctx.beginPath()
           ctx.arc(q.sx, q.sy, rad * 0.62, 0, 7)
           ctx.fill()
@@ -468,16 +564,40 @@ window.__ModuleLoader__.load({
           ctx.globalAlpha = 1
         }
 
-        // 标签：中心常驻，hover 才显示别的
-        ctx.font = '11px -apple-system, "Microsoft YaHei", sans-serif'
+        // 标签：中心常驻；点中一颗星时，把它和与它相连的星一起标出来 ——
+        // 不用再一个个挪鼠标去问「旁边那颗是什么」。
         ctx.textAlign = 'center'
+        ctx.font = '11px -apple-system, "Microsoft YaHei", sans-serif'
         ctx.fillStyle = 'rgba(235,242,255,.95)'
         ctx.fillText(CN.title, core.sx, core.sy + 26)
-        if (hover > 0) {
-          const nd = nodes[hover - 1]
-          ctx.fillStyle = 'rgba(230,240,255,.9)'
-          ctx.fillText(String(nd.title || '').slice(0, 22), Q[hover].sx, Q[hover].sy - 12)
+
+        const tagged = new Set()
+        if (sel >= 0) {
+          tagged.add(sel)
+          for (const j of selNbrs || []) tagged.add(j)
         }
+        if (hover > 0) tagged.add(hover)
+
+        for (const i of tagged) {
+          if (i === 0) continue
+          const nd = nodes[i - 1]
+          if (!nd) continue
+          const q = Q[i]
+          const isSel = i === sel
+          const label = String(nd.title || '').slice(0, 20)
+          if (!label) continue
+          ctx.font = isSel
+            ? '600 12px -apple-system, "Microsoft YaHei", sans-serif'
+            : '11px -apple-system, "Microsoft YaHei", sans-serif'
+          const tw = ctx.measureText(label).width
+          const lh = isSel ? 17 : 15
+          const baseY = q.sy - (isSel ? 26 : 23)
+          ctx.fillStyle = 'rgba(8,12,22,.72)'
+          ctx.fillRect(q.sx - tw / 2 - 3, baseY, tw + 6, lh)
+          ctx.fillStyle = isSel ? 'rgba(255,255,255,.98)' : 'rgba(214,228,252,.9)'
+          ctx.fillText(label, q.sx, baseY + lh - 4)
+        }
+        ctx.textAlign = 'center'
 
         raf = requestAnimationFrame(draw)
       }
@@ -561,6 +681,10 @@ window.__ModuleLoader__.load({
       draw()
 
       return {
+        query,
+        clearQuery() {
+          focusSet = null
+        },
         dispose() {
           alive = false
           cancelAnimationFrame(raf)
@@ -723,6 +847,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [picking, setPicking] = React.useState(false)
       const [selected, setSelected] = React.useState(null)
+      const [q, setQ] = React.useState('')
+      const [hits, setHits] = React.useState([])
       const canvasRef = React.useRef(null)
       const engineRef = React.useRef(null)
 
@@ -744,6 +870,8 @@ window.__ModuleLoader__.load({
           }
           setSource(dir)
           setData(body)
+          setQ('')
+          setHits([])
           setStatus('ready')
         } catch (err) {
           setError(String((err && err.message) || err))
@@ -793,6 +921,26 @@ window.__ModuleLoader__.load({
           { className: 'ym-bar' },
           h('h1', null, t('title')),
           h('div', { className: 'ym-grow ym-meta' }, data ? data.source : ''),
+          h('input', {
+            className: 'ym-q',
+            placeholder: t('search'),
+            value: q,
+            spellCheck: false,
+            onChange: (e) => {
+              const v = e.target.value
+              setQ(v)
+              setSelected(null)
+              setHits(engineRef.current ? engineRef.current.query(v) || [] : [])
+            },
+            onKeyDown: (e) => {
+              if (e.key === 'Escape') {
+                setQ('')
+                setHits([])
+                setSelected(null)
+                if (engineRef.current) engineRef.current.clearQuery()
+              }
+            },
+          }),
           stats
             ? h(
                 'span',
@@ -845,6 +993,20 @@ window.__ModuleLoader__.load({
                       `${name} ${n}`,
                     ),
                   ),
+              )
+            : null,
+
+          status === 'ready' && hits.length
+            ? h(
+                'div',
+                { className: 'ym-hits' },
+                hits.map((nd, i) =>
+                  h(
+                    'button',
+                    { key: i, className: 'ym-hit', onClick: () => setSelected(nd) },
+                    String(nd.title || '—').slice(0, 26),
+                  ),
+                ),
               )
             : null,
 
