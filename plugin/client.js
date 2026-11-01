@@ -332,7 +332,6 @@ window.__ModuleLoader__.load({
       let pitch = -0.35
       let zoom = 1.0
       let spin = 0
-      let inCanvas = false
       let hover = -1
       let sel = -1
       /** 每帧复用的投影数组，避免每帧分配 N 个新对象、把 GC 拖起来。 */
@@ -519,8 +518,8 @@ window.__ModuleLoader__.load({
       /* ---------- 绘制 ---------- */
       function draw() {
         if (!alive) return
-        // 鼠标在图里就停下旋转 —— 不然想点一颗星得追着它点。
-        if (!inCanvas && !dragging) spin += 0.0008
+        // 一直慢慢转：点星这件事现在有右侧清单兜底，不用为了点得准而停转。
+        spin += 0.0008
         ctx.clearRect(0, 0, W, H)
         if (bgCanvas.width) ctx.drawImage(bgCanvas, 0, 0, W, H)
 
@@ -791,17 +790,8 @@ window.__ModuleLoader__.load({
       }
 
       canvas.addEventListener('mousedown', onDown)
-      const onEnter = () => {
-        inCanvas = true
-      }
-      const onLeave = () => {
-        inCanvas = false
-        hover = -1
-      }
       window.addEventListener('mouseup', onUp)
       canvas.addEventListener('mousemove', onMove)
-      canvas.addEventListener('mouseenter', onEnter)
-      canvas.addEventListener('mouseleave', onLeave)
       canvas.addEventListener('wheel', onWheel, { passive: false })
       canvas.addEventListener('click', onClick)
 
@@ -848,8 +838,6 @@ window.__ModuleLoader__.load({
           canvas.removeEventListener('mousedown', onDown)
           window.removeEventListener('mouseup', onUp)
           canvas.removeEventListener('mousemove', onMove)
-          canvas.removeEventListener('mouseenter', onEnter)
-          canvas.removeEventListener('mouseleave', onLeave)
           canvas.removeEventListener('wheel', onWheel)
           canvas.removeEventListener('click', onClick)
         },
@@ -1176,28 +1164,6 @@ window.__ModuleLoader__.load({
               )
             : null,
 
-          status === 'ready' && stats
-            ? h(
-                'div',
-                { className: 'ym-legend' },
-                Object.entries(stats.themes)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([name, n]) =>
-                    h(
-                      'button',
-                      {
-                        key: name,
-                        className: 'ym-leg-btn' + (pane && pane.name === name ? ' on' : ''),
-                        onClick: () => openTheme(name),
-                        title: t('pickTheme'),
-                      },
-                      h('i', { className: 'ym-dot', style: { background: colors[name] || '#6a7d9c' } }),
-                      `${name} ${n}`,
-                    ),
-                  ),
-              )
-            : null,
-
           status === 'ready' && hits.length
             ? h(
                 'div',
@@ -1229,6 +1195,29 @@ window.__ModuleLoader__.load({
               })
             : null,
         ),
+
+        // 图例挂在 root 上而不是 stage 里 —— 否则星图缩小让位时图例跟着缩，点起来费劲。
+        status === 'ready' && stats
+          ? h(
+              'div',
+              { className: 'ym-legend' },
+              Object.entries(stats.themes)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, n]) =>
+                  h(
+                    'button',
+                    {
+                      key: name,
+                      className: 'ym-leg-btn' + (pane && pane.name === name ? ' on' : ''),
+                      onClick: () => openTheme(name),
+                      title: t('pickTheme'),
+                    },
+                    h('i', { className: 'ym-dot', style: { background: colors[name] || '#6a7d9c' } }),
+                    `${name} ${n}`,
+                  ),
+                ),
+            )
+          : null,
 
         h(
           'div',
