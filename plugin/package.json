@@ -1,0 +1,35 @@
+{
+  "name": "dsh-memory-atlas",
+  "version": "0.1.0",
+  "description": "记忆星图：把一个 Markdown 记忆文件夹连成一张可交互的星图 / Memory Atlas: turn a folder of Markdown memories into an explorable star map.",
+  "type": "module",
+  "main": "index.js",
+  "icon": "icon.svg",
+  "license": "MIT",
+  "keywords": ["dsh", "dsh-plugin", "memory", "markdown", "knowledge-graph", "visualization"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "atlas.js",
+    "client.js",
+    "themes.json",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-locale"]
+    }
+  }
+}

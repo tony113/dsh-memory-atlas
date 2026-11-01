@@ -1,0 +1,4 @@
+# dsh bundle patch：把这个插件插进 profile 的层栈里。
+- insert:
+    - id: yan-memory-atlas
+      name: 'dsh-memory-atlas'
